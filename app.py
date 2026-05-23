@@ -11,11 +11,24 @@ LISTA_MAESTRA = {
     "Ibuprofeno 400mg": "MODELO_ID_IBUPROFENO"
 }
 
-# --- INICIALIZACIÓN DE ESTADO ---
+# --- INICIALIZACIÓN ---
 if 'autenticado' not in st.session_state: st.session_state.autenticado = False
 if 'pacientes' not in st.session_state: st.session_state.pacientes = {}
 
-# --- LÓGICA DE LOGIN ---
+# --- FUNCIÓN GENERAR PDF ---
+def generar_pdf(dni, data):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt=f"Reporte Clinico: Paciente {dni}", ln=True, align='C')
+    pdf.set_font("Arial", size=12)
+    pdf.ln(10)
+    for med, lista_blisteres in data.items():
+        total = sum(b['vacios'] for b in lista_blisteres)
+        pdf.cell(200, 10, txt=f"- {med}: Total {total} dosis consumidas", ln=True)
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- LÓGICA LOGIN ---
 def mostrar_login():
     st.title("🏥 Acceso al Sistema")
     usuario = st.text_input("Usuario")
@@ -27,7 +40,7 @@ def mostrar_login():
         else:
             st.error("Usuario o contraseña incorrectos")
 
-# --- LÓGICA DE LA APP ---
+# --- LÓGICA APP ---
 def mostrar_app():
     st.title("🏥 Admisión Cayetano")
     if st.sidebar.button("Cerrar Sesión"):
@@ -36,33 +49,37 @@ def mostrar_app():
 
     dni = st.text_input("DNI del Paciente:")
     if dni:
-        # CORRECCIÓN: Inicialización segura para evitar el AttributeError
         if dni not in st.session_state.pacientes:
             st.session_state.pacientes[dni] = {med: [] for med in LISTA_MAESTRA.keys()}
         
-        med = st.selectbox("Medicamento:", list(LISTA_MAESTRA.keys()))
+        med = st.selectbox("Seleccione Medicamento:", list(LISTA_MAESTRA.keys()))
         
-        # Botón seguro para añadir blíster
         if st.button("Añadir nuevo blíster"):
             nueva_id = len(st.session_state.pacientes[dni][med]) + 1
             st.session_state.pacientes[dni][med].append({"id": nueva_id, "vacios": 0})
             st.rerun()
 
-        # Visualización de blísteres
+        # Visualización y Registro
         for idx, b in enumerate(st.session_state.pacientes[dni][med]):
-            with st.expander(f"Blíster #{b['id']}", expanded=True):
+            with st.expander(f"Blíster #{b['id']} (Código: BLI-{dni[:3]}-{b['id']})", expanded=True):
                 archivo = st.file_uploader(f"Foto Blíster {b['id']}", key=f"up_{dni}_{med}_{idx}")
                 if archivo:
                     with open("temp.jpg", "wb") as f: f.write(archivo.getbuffer())
                     res = CLIENT.infer("temp.jpg", model_id=LISTA_MAESTRA[med])
                     vacios = sum(1 for p in res['predictions'] if p['class'] == 'alveolo_vacio')
                     st.session_state.pacientes[dni][med][idx]['vacios'] = vacios
-                    st.success(f"Detectado: {vacios} consumidas.")
+                    st.success(f"Analizado: {vacios} consumidas.")
 
         st.metric(f"Total consumido {med}", sum(b['vacios'] for b in st.session_state.pacientes[dni][med]))
+        
+        # BOTÓN PDF
+        st.download_button(
+            label="📄 Descargar Reporte PDF",
+            data=generar_pdf(dni, st.session_state.pacientes[dni]),
+            file_name=f"Reporte_Paciente_{dni}.pdf",
+            mime="application/pdf"
+        )
 
-# --- FLUJO PRINCIPAL ---
-if not st.session_state.autenticado:
-    mostrar_login()
-else:
-    mostrar_app()
+# --- FLUJO ---
+if not st.session_state.autenticado: mostrar_login()
+else: mostrar_app()
