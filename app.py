@@ -1,95 +1,67 @@
 import streamlit as st
-import os
 from inference_sdk import InferenceHTTPClient
 
-try:
+# --- CONFIGURACIÓN DE SEGURIDAD ---
+# En Streamlit Cloud, configura esto en Settings > Secrets
+if "ROBOFLOW_API_KEY" in st.secrets:
     api_key = st.secrets["ROBOFLOW_API_KEY"]
-except:
-    api_key = "OCb1UXipZhLKuboj2cMy" 
-
-CLIENT = InferenceHTTPClient(
-    api_url="https://serverless.roboflow.com",
-    api_key=api_key
-)
-
-# --- INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
-if 'autenticado' not in st.session_state:
-    st.session_state.autenticado = False
-if 'inventario_escaneado' not in st.session_state:
-    st.session_state.inventario_escaneado = []
-
-# --- PANTALLA DE LOGIN ---
-def login():
-    st.title("🏥 Admisión Hospitalaria - Cayetano")
-    st.subheader("Acceso al Sistema de Liquidación")
-    
-    usuario = st.text_input("Documento de Identidad (DNI)")
-    clave = st.text_input("Contraseña", type="password")
-    
-    if st.button("Ingresar"):
-        if usuario == "admin" and clave == "cayetano2024":
-            st.session_state.autenticado = True
-            st.rerun()
-        else:
-            st.error("Credenciales incorrectas")
-
-# --- PANTALLA PRINCIPAL (DASHBOARD) ---
-def dashboard():
-    st.sidebar.title(f"Usuario: Operador 01")
-    if st.sidebar.button("Cerrar Sesión"):
-        st.session_state.autenticado = False
-        st.rerun()
-
-    st.title("Liquidación de Medicamentos")
-    
-    medicamento_sel = st.selectbox("Seleccione el medicamento a validar:", 
-                                   ["Paracetamol 500mg (Genfar)", "Ibuprofeno", "Antibiótico"])
-    
-    modelos = {
-        "Paracetamol 500mg (Genfar)": "cayetano_paracetamol_genfar/1",
-        "Ibuprofeno": "tu_modelo_ibuprofeno/1", # Cambia esto cuando entrenes el siguiente
-        "Antibiótico": "tu_modelo_antibiotico/1"
-    }
-
-    st.write("---")
-    img_file = st.camera_input("Tome foto del blíster (Cara de aluminio)")
-
-    if img_file:
-        with st.spinner("IA Analizando blíster..."):
-            with open("temp.jpg", "wb") as f:
-                f.write(img_file.getbuffer())
-            
-            # Inferencia
-            result = CLIENT.infer("temp.jpg", model_id=modelos[medicamento_sel])
-            
-            # Conteo
-            llenas = sum(1 for p in result['predictions'] if p['class'] == 'pastilla_llena')
-            vacios = sum(1 for p in result['predictions'] if p['class'] == 'alveolo_vacio')
-            
-            st.session_state.inventario_escaneado.append({
-                "medicamento": medicamento_sel,
-                "llenas": llenas,
-                "vacios": vacios
-            })
-            st.success(f"Blíster detectado: {llenas} llenas, {vacios} consumidas.")
-
-    # Resumen
-    if st.session_state.inventario_escaneado:
-        st.write("### 📋 Resumen de Liquidación Final")
-        
-        total_llenas = sum(item['llenas'] for item in st.session_state.inventario_escaneado)
-        total_vacios = sum(item['vacios'] for item in st.session_state.inventario_escaneado)
-        
-        col1, col2 = st.columns(2)
-        col1.metric("Total Llenas (Devolver)", total_llenas)
-        col2.metric("Total Vacíos (Consumo)", total_vacios)
-
-        if st.button("Limpiar y Nuevo Paciente"):
-            st.session_state.inventario_escaneado = []
-            st.rerun()
-
-# --- NAVEGACIÓN ---
-if not st.session_state.autenticado:
-    login()
 else:
-    dashboard()
+    api_key = "OCb1UXipZhLKuboj2cMy" # Tu clave local para pruebas
+
+CLIENT = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=api_key)
+
+# --- CONFIGURACIÓN DE MEDICAMENTOS ---
+LISTA_MAESTRA = {
+    "Paracetamol 500mg": "cayetano_paracetamol_genfar/1",
+    "Ibuprofeno 400mg": "MODELO_ID_IBUPROFENO",
+    "Amoxicilina 500mg": "MODELO_ID_AMOXICILINA"
+}
+
+# --- INICIALIZACIÓN DE ESTADO ---
+if 'pacientes' not in st.session_state:
+    st.session_state.pacientes = {}
+
+# --- INTERFAZ ---
+st.title("🏥 Admisión Cayetano - Gestión Integral")
+
+dni_actual = st.text_input("Ingrese DNI del paciente:")
+
+if dni_actual:
+    # Inicializar paciente si es nuevo
+    if dni_actual not in st.session_state.pacientes:
+        st.session_state.pacientes[dni_actual] = {med: 0 for med in LISTA_MAESTRA.keys()}
+    
+    st.subheader(f"Paciente: {dni_actual}")
+    medicamento = st.selectbox("Seleccione medicamento:", list(LISTA_MAESTRA.keys()))
+    
+    # Captura Híbrida (Cámara o Archivo)
+    archivo_subido = st.file_uploader("Subir foto de blíster (Cámara o Galería)", type=["jpg", "jpeg", "png"])
+    
+    if archivo_subido:
+        with st.spinner("Analizando con IA..."):
+            with open("temp.jpg", "wb") as f:
+                f.write(archivo_subido.getbuffer())
+            
+            try:
+                result = CLIENT.infer("temp.jpg", model_id=LISTA_MAESTRA[medicamento])
+                vacios = sum(1 for p in result['predictions'] if p['class'] == 'alveolo_vacio')
+                
+                # Actualizar contador del paciente
+                st.session_state.pacientes[dni_actual][medicamento] += vacios
+                st.success(f"Éxito: {vacios} dosis consumidas registradas en {medicamento}.")
+                st.image(archivo_subido, caption="Imagen procesada", use_container_width=True)
+            except Exception as e:
+                st.error(f"Error de conexión con la IA: {e}")
+
+    # Reporte del paciente
+    st.write("---")
+    st.write(f"### 📋 Resumen actual de {dni_actual}:")
+    resumen = st.session_state.pacientes[dni_actual]
+    
+    for med, total in resumen.items():
+        st.write(f"**{med}:** {total} dosis consumidas")
+
+# --- BARRA LATERAL ---
+if st.sidebar.button("Reiniciar Toda la Base de Datos"):
+    st.session_state.pacientes = {}
+    st.rerun()
