@@ -1,5 +1,6 @@
 import streamlit as st
 from inference_sdk import InferenceHTTPClient
+from fpdf import FPDF
 
 # --- CONFIGURACIÓN ---
 api_key = st.secrets.get("ROBOFLOW_API_KEY", "OCb1UXipZhLKuboj2cMy")
@@ -19,7 +20,6 @@ def mostrar_login():
     st.title("🏥 Acceso al Sistema")
     usuario = st.text_input("Usuario")
     contraseña = st.text_input("Contraseña", type="password")
-    
     if st.button("Ingresar"):
         if usuario == "admin" and contraseña == "cayetano2024":
             st.session_state.autenticado = True
@@ -30,24 +30,27 @@ def mostrar_login():
 # --- LÓGICA DE LA APP ---
 def mostrar_app():
     st.title("🏥 Admisión Cayetano")
-    
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
         st.rerun()
 
     dni = st.text_input("DNI del Paciente:")
     if dni:
+        # CORRECCIÓN: Inicialización segura para evitar el AttributeError
         if dni not in st.session_state.pacientes:
             st.session_state.pacientes[dni] = {med: [] for med in LISTA_MAESTRA.keys()}
         
         med = st.selectbox("Medicamento:", list(LISTA_MAESTRA.keys()))
         
+        # Botón seguro para añadir blíster
         if st.button("Añadir nuevo blíster"):
-            st.session_state.pacientes[dni][med].append({"id": len(st.session_state.pacientes[dni][med]) + 1, "vacios": 0})
+            nueva_id = len(st.session_state.pacientes[dni][med]) + 1
+            st.session_state.pacientes[dni][med].append({"id": nueva_id, "vacios": 0})
             st.rerun()
 
+        # Visualización de blísteres
         for idx, b in enumerate(st.session_state.pacientes[dni][med]):
-            with st.expander(f"Blíster #{b['id']} (Código: BLI-{dni[:3]}-{b['id']})", expanded=True):
+            with st.expander(f"Blíster #{b['id']}", expanded=True):
                 archivo = st.file_uploader(f"Foto Blíster {b['id']}", key=f"up_{dni}_{med}_{idx}")
                 if archivo:
                     with open("temp.jpg", "wb") as f: f.write(archivo.getbuffer())
