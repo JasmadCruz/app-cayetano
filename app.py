@@ -1,10 +1,15 @@
 import streamlit as st
+import os
 from inference_sdk import InferenceHTTPClient
 
-# --- CONFIGURACIÓN DE IA ---
+try:
+    api_key = st.secrets["ROBOFLOW_API_KEY"]
+except:
+    api_key = "OCb1UXipZhLKuboj2cMy" 
+
 CLIENT = InferenceHTTPClient(
     api_url="https://serverless.roboflow.com",
-    api_key="OCb1UXipZhLKuboj2cMy" # Recuerda cambiarla por seguridad después
+    api_key=api_key
 )
 
 # --- INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
@@ -22,7 +27,7 @@ def login():
     clave = st.text_input("Contraseña", type="password")
     
     if st.button("Ingresar"):
-        if usuario == "admin" and clave == "cayetano2024": # Configura tu clave aquí
+        if usuario == "admin" and clave == "cayetano2024":
             st.session_state.autenticado = True
             st.rerun()
         else:
@@ -37,18 +42,17 @@ def dashboard():
 
     st.title("Liquidación de Medicamentos")
     
-    # 1. Selección de Medicamento (Escalable)
     medicamento_sel = st.selectbox("Seleccione el medicamento a validar:", 
-                                   ["Paracetamol 500mg (Genfar)", "Ibuprofeno (Próximamente)", "Antibiótico (Próximamente)"])
+                                   ["Paracetamol 500mg (Genfar)", "Ibuprofeno", "Antibiótico"])
     
-    # Mapeo de modelos (Aquí agregarás los nuevos IDs de Roboflow)
     modelos = {
-        "Paracetamol 500mg (Genfar)": "cayetano_paracetamol_genfar/1"
+        "Paracetamol 500mg (Genfar)": "cayetano_paracetamol_genfar/1",
+        "Ibuprofeno": "tu_modelo_ibuprofeno/1", # Cambia esto cuando entrenes el siguiente
+        "Antibiótico": "tu_modelo_antibiotico/1"
     }
 
-    # 2. Captura de Blísteres (Permite múltiples fotos)
     st.write("---")
-    img_file = st.camera_input("Tome foto del blíster (Cara de aluminio)") # Esto abre la cámara en el cel
+    img_file = st.camera_input("Tome foto del blíster (Cara de aluminio)")
 
     if img_file:
         with st.spinner("IA Analizando blíster..."):
@@ -62,7 +66,6 @@ def dashboard():
             llenas = sum(1 for p in result['predictions'] if p['class'] == 'pastilla_llena')
             vacios = sum(1 for p in result['predictions'] if p['class'] == 'alveolo_vacio')
             
-            # Guardar en sesión
             st.session_state.inventario_escaneado.append({
                 "medicamento": medicamento_sel,
                 "llenas": llenas,
@@ -70,24 +73,22 @@ def dashboard():
             })
             st.success(f"Blíster detectado: {llenas} llenas, {vacios} consumidas.")
 
-    # 3. Resumen de Liquidación Acumulada
+    # Resumen
     if st.session_state.inventario_escaneado:
         st.write("### 📋 Resumen de Liquidación Final")
         
         total_llenas = sum(item['llenas'] for item in st.session_state.inventario_escaneado)
         total_vacios = sum(item['vacios'] for item in st.session_state.inventario_escaneado)
-        num_blisteres = len(st.session_state.inventario_escaneado)
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Blísteres", num_blisteres)
-        col2.metric("Total Llenas (Devolver)", total_llenas)
-        col3.metric("Total Vacíos (Consumo)", total_vacios)
+        
+        col1, col2 = st.columns(2)
+        col1.metric("Total Llenas (Devolver)", total_llenas)
+        col2.metric("Total Vacíos (Consumo)", total_vacios)
 
         if st.button("Limpiar y Nuevo Paciente"):
             st.session_state.inventario_escaneado = []
             st.rerun()
 
-# --- LÓGICA DE NAVEGACIÓN ---
+# --- NAVEGACIÓN ---
 if not st.session_state.autenticado:
     login()
 else:
